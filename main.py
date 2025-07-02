@@ -1,29 +1,26 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
-from fastapi import staticfiles
-from fastapi.websockets import WebSocket, WebSocketDisconnect
-
-from starlette.requests import Request as StarletteRequest
+from fastapi.staticfiles import StaticFiles
 from manager import MeetingManager
 
 app = FastAPI()
 
 # Mount static files
-app.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Setup Jinja2 templates
+# Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
-# Save and override url_for to enforce HTTPS
-original_url_for = templates.env.globals["url_for"]
+# Override url_for to enforce HTTPS
+def https_url_for(request: Request, name: str, **path_params):
+    url = request.url_for(name, **path_params)
+    return url.replace("http://", "https://")
 
-def https_url_for(request: StarletteRequest, name: str, **path_params):
-    return original_url_for(request, name, **path_params).replace("http://", "https://")
+# Inject the HTTPS url_for into template globals
+templates.env.globals["https_url_for"] = https_url_for
 
-templates.env.globals["url_for"] = https_url_for
-
-# Add CORS middleware
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,17 +29,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Meeting manager
+# WebSocket manager
 meeting_manager = MeetingManager()
 
 # Routes
 @app.get("/")
 def home(request: Request):
-    return templates.TemplateResponse(request=request, name="home.html")
+    return templates.TemplateResponse("home.html", {"request": request, "https_url_for": https_url_for})
 
 @app.get("/room/{roomName}")
 def get_video(request: Request, roomName: str):
-    return templates.TemplateResponse(request=request, name="index.html")
+    return templates.TemplateResponse("index.html", {"request": request, "https_url_for": https_url_for})
 
 @app.websocket("/ws/{client_id}")
 async def connect_websocket(websocket: WebSocket, client_id: str):
