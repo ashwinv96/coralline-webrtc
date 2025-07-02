@@ -6,13 +6,11 @@ from fastapi.websockets import WebSocket, WebSocketDisconnect
 
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from manager import MeetingManager
 
 
 app = FastAPI()
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 app.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
