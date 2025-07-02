@@ -27,9 +27,7 @@ let connect = async (callback) => {
 let handleMessage = async ({ data }) => {
   data = JSON.parse(data);
   if (data["type"] == "USER_JOIN") {
-    debugger
     polite = true
-    createAndSendOffer();
   }
   if (data["type"] === "OFFER") {
     console.log("received offer")
