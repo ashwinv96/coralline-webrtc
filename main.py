@@ -8,6 +8,8 @@ from manager import MeetingManager
 
 
 app = FastAPI()
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 app.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
