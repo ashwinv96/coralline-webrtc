@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi import staticfiles
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 
+from starlette.requests import Request as StarletteRequest
 from manager import MeetingManager
 
 app = FastAPI()
@@ -14,13 +15,14 @@ app.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
 # Setup Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
-# Force HTTPS in url_for()
-from starlette.requests import Request as StarletteRequest
-def force_https_url_for(request: StarletteRequest, name: str, **path_params):
-    return request.url_for(name, **path_params).replace("http://", "https://")
-templates.env.globals['url_for'] = lambda name, **path_params: (
-    lambda request: request.url_for(name, **path_params).replace("http://", "https://")
-)
+# Save and override url_for to enforce HTTPS
+original_url_for = templates.env.globals["url_for"]
+
+def https_url_for(request: StarletteRequest, name: str, **path_params):
+    return original_url_for(request, name, **path_params).replace("http://", "https://")
+
+templates.env.globals["url_for"] = https_url_for
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
