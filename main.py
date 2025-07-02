@@ -15,7 +15,7 @@ templates = Jinja2Templates(directory="templates")
 # Override url_for to enforce HTTPS
 def https_url_for(request: Request, name: str, **path_params):
     url = request.url_for(name, **path_params)
-    return url.replace("http://", "https://")
+    return str(url).replace("http://", "https://")
 
 # Inject the HTTPS url_for into template globals
 templates.env.globals["https_url_for"] = https_url_for
