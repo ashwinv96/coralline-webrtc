@@ -3,160 +3,102 @@ let remoteStream;
 let peerConnection;
 let socket;
 let makingOffer = false;
-let polite = false
-
-let init = async () => {
-  localStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
-    audio: false,
-  });
-  document.getElementById("user-1").srcObject = localStream;
-  await connect(createAndSendOffer);
-}
-
-let connect = async (callback) => {
-  let roomName = window.location.pathname.split("/")[2]; // Changed from [1] to [2]
-  socket = new WebSocket(`wss://${window.location.host}/ws/${roomName}`);
-  socket.onopen = async (_) =>  {
-    await callback()
-  };
-
-  socket.onmessage = handleMessage;
-};
-
-let handleMessage = async ({ data }) => {
-  data = JSON.parse(data);
-  if (data["type"] == "USER_JOIN") {
-    polite = true
-  }
-  if (data["type"] === "OFFER") {
-    console.log("received offer")
-    handlePerfectNegotiation(data)
-  }
-  if (data["type"] === "ANSWER") {
-    console.log("received answer")
-    handlePerfectNegotiation(data)
-  }
-  if(data["type"] === "candidate") {
-    handleIceCandidate(data)
-  }
-};
-
-let handleOffers = async ({ message }) => {
-  await createAndSendAnswer(message);
-};
-
-let handleAnswers = async ({ message }) => {
-  await peerConnection.setRemoteDescription(message);
-};
-
-let handleIceCandidate = async ({ candidate }) => {
-  if (peerConnection && peerConnection.remoteDescription) {
-    peerConnection.addIceCandidate(candidate);
-  }
-};
-
-let handlePerfectNegotiation = async ({ message }) => {
-  try {
-    if (message) {
-      const offerCollision =
-        message.type === "offer" &&
-        (makingOffer || peerConnection.signalingState !== "stable");
-
-      ignoreOffer = !polite && offerCollision;
-      if (ignoreOffer) {
-        return;
-      }
-
-      await peerConnection.setRemoteDescription(message);
-      if (message.type === "offer") {
-        await peerConnection.setLocalDescription();
-        socket.send(JSON.stringify({
-          type: "ANSWER",
-          message: peerConnection.localDescription,
-        }));
-      }
-    }
-  } catch (err) {
-    console.error(err);
-  }
-};
+let polite = false;
+let ignoreOffer = false;
 
 const config = {
   iceServers: [
-    {
-      urls: [
-        "stun:stun1.l.google.com:19302",
-        "stun:stun1.l.google.com:19302",
-        "stun:stun2.l.google.com:19302",
-      ],
-    },
+    { urls: ["stun:stun.l.google.com:19302"] },
   ],
 };
 
-let createStreams = async () => {
-  peerConnection = new RTCPeerConnection(config);
-  remoteStream = new MediaStream();
+let roomName = window.location.pathname.split("/")[2];
 
-  localStream.getTracks().forEach((track) => {
-    peerConnection.addTrack(track, localStream);
-  });
+const init = async () => {
+  // Get media
+  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  document.getElementById("user-1").srcObject = localStream;
 
-  // This function is called each time a peer connects.
-  peerConnection.ontrack = (event) => {
-    console.log("adding track");
-    event.streams[0]
-      .getTracks()
-      .forEach((track) => remoteStream.addTrack(track));
+  // Connect WebSocket
+  socket = new WebSocket(`wss://${window.location.host}/ws/${roomName}`);
+
+  socket.onopen = async () => {
+    await createPeerConnection();
   };
 
-  peerConnection.onicecandidate = async (event) => {
-    if (event.candidate) {
-      socket.send(
-        JSON.stringify({ type: "candidate", candidate: event.candidate })
-      );
+  socket.onmessage = async ({ data }) => {
+    data = JSON.parse(data);
+
+    switch (data.type) {
+      case "USER_JOIN":
+        console.log("Another user joined. I'm polite.");
+        polite = true;
+        break;
+
+      case "OFFER":
+      case "ANSWER":
+        await handleDescription(data);
+        break;
+
+      case "candidate":
+        if (peerConnection && data.candidate) {
+          try {
+            await peerConnection.addIceCandidate(data.candidate);
+          } catch (e) {
+            if (!ignoreOffer) throw e;
+          }
+        }
+        break;
     }
   };
+};
+
+const createPeerConnection = async () => {
+  peerConnection = new RTCPeerConnection(config);
+  remoteStream = new MediaStream();
+  document.getElementById("user-2").srcObject = remoteStream;
+
+  localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+  peerConnection.ontrack = ({ streams: [stream] }) => {
+    stream.getTracks().forEach(track => remoteStream.addTrack(track));
+  };
+
+  peerConnection.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      socket.send(JSON.stringify({ type: "candidate", candidate }));
+    }
+  };
+
   peerConnection.onnegotiationneeded = async () => {
     try {
       makingOffer = true;
       await peerConnection.setLocalDescription();
-      // signaler.send({ description: pc.localDescription });
-      socket.send(
-        JSON.stringify({
-          type: "OFFER",
-          message: peerConnection.localDescription,
-        })
-      );
+      socket.send(JSON.stringify({ type: "OFFER", message: peerConnection.localDescription }));
     } catch (err) {
-      console.error(err);
+      console.error("Negotiation error:", err);
     } finally {
       makingOffer = false;
     }
   };
-
-  document.getElementById("user-2").srcObject = remoteStream;
 };
 
-let createAndSendOffer = async () => {
-  await createStreams();
-  // let offer = await peerConnection.createOffer();
-  // await peerConnection.setLocalDescription(offer);
+const handleDescription = async ({ type, message }) => {
+  const readyForOffer = !makingOffer && (peerConnection.signalingState === "stable" || peerConnection.signalingState === "have-local-offer");
+  const offerCollision = type === "OFFER" && !readyForOffer;
 
+  ignoreOffer = !polite && offerCollision;
+  if (ignoreOffer) return;
+
+  try {
+    await peerConnection.setRemoteDescription(message);
+    if (type === "OFFER") {
+      await peerConnection.setLocalDescription(await peerConnection.createAnswer());
+      socket.send(JSON.stringify({ type: "ANSWER", message: peerConnection.localDescription }));
+    }
+  } catch (err) {
+    console.error("Error handling description:", err);
+  }
 };
 
-// let createAndSendAnswer = async (message) => {
-//   await createStreams();
-//   await peerConnection.setRemoteDescription(message);
-//   let answer = await peerConnection.createAnswer();
-//   await peerConnection.setLocalDescription(answer);
-//   socket.send(JSON.stringify({ type: "ANSWER", message: answer }));
-// };
-
-document.addEventListener(
-  "DOMContentLoaded",
-  async function () {
-    await init();
-  },
-  false
-);
+document.addEventListener("DOMContentLoaded", init);
