@@ -16,7 +16,9 @@ let init = async () => {
 
 let connect = async (callback) => {
   let roomName = window.location.pathname.split("/")[2]; // Changed from [1] to [2]
-  socket = new WebSocket(`wss://api.coralline.ai/ws/${roomName}`); // Removed extra quote
+  socket = new WebSocket(
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/${roomName}`
+  );
   socket.onopen = async (_) =>  {
     await callback()
   };
