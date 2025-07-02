@@ -18,8 +18,9 @@ templates = Jinja2Templates(directory="templates")
 from starlette.requests import Request as StarletteRequest
 def force_https_url_for(request: StarletteRequest, name: str, **path_params):
     return request.url_for(name, **path_params).replace("http://", "https://")
-templates.env.globals['url_for'] = force_https_url_for
-
+templates.env.globals['url_for'] = lambda name, **path_params: (
+    lambda request: request.url_for(name, **path_params).replace("http://", "https://")
+)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
