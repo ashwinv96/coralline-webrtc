@@ -4,19 +4,23 @@ from fastapi.templating import Jinja2Templates
 from fastapi import staticfiles
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
-
 from manager import MeetingManager
-
 
 app = FastAPI()
 
+# Mount static files
 app.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
+
+# Setup Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
-meeting_manager = MeetingManager()
+# Force HTTPS in url_for()
+from starlette.requests import Request as StarletteRequest
+def force_https_url_for(request: StarletteRequest, name: str, **path_params):
+    return request.url_for(name, **path_params).replace("http://", "https://")
+templates.env.globals['url_for'] = force_https_url_for
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,9 +29,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Meeting manager
+meeting_manager = MeetingManager()
+
+# Routes
 @app.get("/")
 def home(request: Request):
     return templates.TemplateResponse(request=request, name="home.html")
+
+@app.get("/room/{roomName}")
+def get_video(request: Request, roomName: str):
+    return templates.TemplateResponse(request=request, name="index.html")
 
 @app.websocket("/ws/{client_id}")
 async def connect_websocket(websocket: WebSocket, client_id: str):
@@ -38,7 +50,3 @@ async def connect_websocket(websocket: WebSocket, client_id: str):
             await meeting_manager.rooms[client_id].broadcast(data, websocket)
     except WebSocketDisconnect:
         meeting_manager.leave(client_id, websocket)
-
-@app.get("/room/{roomName}")
-def get_video(request: Request, roomName:str):
-    return templates.TemplateResponse(request=request, name="index.html")
